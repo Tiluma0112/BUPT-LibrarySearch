@@ -1,0 +1,58 @@
+# ============================================================
+# 便于开源到 GitHub 的忽略规则
+# 原则：源码、资源、配置（不含签名）入库；依赖、构建产物、
+#       IDE 缓存、本机配置、签名材料一律不入库。
+# ============================================================
+
+# ---- 依赖与包管理（由 ohpm 按 oh-package.json5 / lock 重建）----
+**/node_modules/
+**/oh_modules/
+**/.ohpm/
+
+# ---- 本机配置（DevEco Studio 自动生成，含本机 SDK 路径）----
+**/local.properties
+
+# ---- IDE / 编辑器状态 ----
+.idea/
+**/.idea/
+.deveco/
+.vscode/
+*.iml
+
+# ---- 构建产物与缓存（用 hvigor 重新生成，体积大且与机器相关）----
+**/build/
+**/.hvigor/
+**/.hvigor-user/
+**/.build-tools/
+**/.preview/
+**/.test/
+**/.cxx/
+**/.cache/
+**/.appanalyzer/
+**/.clangd
+**/.clang-format
+**/.clang-tidy
+
+# ---- 签名材料（切勿提交到公开仓库）----
+*.p12
+*.cer
+*.p7b
+*.keystore
+*.jks
+*.pem
+*.key
+
+# ---- 打包产物 ----
+*.hsp
+*.app
+# 构建产物（HAP）不入库；可安装的签名包请通过 GitHub Releases 分发
+*.hap
+
+# ---- 系统与日志 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+
+# ---- 工具 / 环境临时目录 ----
+.dsh-acl-recovery/

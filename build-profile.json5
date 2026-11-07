@@ -1,0 +1,44 @@
+{
+  // 签名配置（signingConfigs）包含本机证书路径与密码，属于个人环境信息，
+  // 已从这份分发副本中移除。用 DevEco Studio 打开本工程后，请通过
+  // File > Project Structure > Signing Configs 为本机重新配置调试签名，
+  // 否则只能生成未签名的 HAP，无法安装到设备。
+  "app": {
+    "products": [
+      {
+        "name": "default",
+        "targetSdkVersion": "26.0.0",
+        "compatibleSdkVersion": "26.0.0",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

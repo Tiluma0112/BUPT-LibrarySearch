@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "北邮图书馆公开书目检索"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "检索与查看北邮图书馆公开馆藏"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "北邮图书馆检索"
+    }
+  ]
+}
