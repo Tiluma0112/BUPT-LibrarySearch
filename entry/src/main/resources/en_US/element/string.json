@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "BUPT Library public catalog search"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Search and view public holdings of BUPT Library"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "BUPT Library"
+    }
+  ]
+}

@@ -8,4 +8,4 @@ export const PORTAL_LOGIN_URL: string = 'https://auth.bupt.edu.cn/authserver/log
   encodeURIComponent(`${PORTAL_BASE_URL}/sso/login/3rd/1843?referer=${encodeURIComponent(PORTAL_MY_LIBRARY_URL)}`);
 
 // 开源仓库地址：GitHub 仓库创建后，请把下面的仓库地址改成实际地址
-export const GITHUB_REPO_URL: string = 'https://github.com/Tiluma0112/BUPT-LibSearch';
+export const GITHUB_REPO_URL: string = 'https://github.com/Tiluma0112/BUPT-LibrarySearch';
