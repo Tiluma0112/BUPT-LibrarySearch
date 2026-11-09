@@ -61,6 +61,14 @@ interface RawPortalUserResponse {
 }
 
 export class LibraryDataService {
+  static async verifyOpacSession(): Promise<void> {
+    const response = await LibraryDataService.requestList<RawCurrentLoan>(
+      'reader-borrowinfo.json', 'reader-borrowinfo.html', 'pageNo=1&pageSize=1');
+    if (!Array.isArray(response.data)) {
+      throw new Error('图书馆会话验证响应格式不正确');
+    }
+  }
+
   private static operationText(code?: string | number): string {
     const value = String(code ?? '').trim();
     if (!value) { return ''; }
@@ -188,6 +196,13 @@ export class LibraryDataService {
           status: '', latestAt: event.at, cycles: [], otherEvents: []
         };
         books.set(bookKey, book);
+      }
+      if (!book.isbn && raw.isn) { book.isbn = raw.isn; }
+      if (!book.authors && raw.authors) { book.authors = raw.authors; }
+      if (book.title === '未命名图书' && raw.title) { book.title = raw.title; }
+      if (!book.publication) {
+        book.publication = [raw.publisher || '', raw.pubdateDate || '']
+          .filter((value: string): boolean => value.length > 0).join(' · ');
       }
       if (event.at > book.latestAt) { book.latestAt = event.at; }
       const itemKey = `${bookKey}|${raw.bookBarcode || ''}`;

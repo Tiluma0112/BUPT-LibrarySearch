@@ -56,7 +56,10 @@ export struct BorrowHistoryCard {
         Blank().layoutWeight(1);
         Button('检索此书')
           .height(44)
-          .onClick(() => { this.onSearchBook(this.item.title, false); });
+          .onClick(() => {
+            const identifier = this.item.isbn.trim();
+            this.onSearchBook(identifier || this.item.title, !!identifier);
+          });
       }
       .width('100%');
     }

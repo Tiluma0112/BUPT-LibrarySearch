@@ -50,6 +50,12 @@ interface RawShelfResponse {
 }
 
 export class OpacService {
+  static mapPreviewUrl(url: string): string {
+    // 馆方只识别 iOS/Android UA；HarmonyOS 直接进入其手机布局路由。
+    return url.startsWith(`${SHELF_MAP_BASE_URL}/position?`) ?
+      url.replace('/position?', '/phone/position?') : url;
+  }
+
   static async shelfLocationFromMap(url: string): Promise<string> {
     if (!url.startsWith(`${SHELF_MAP_BASE_URL}/position?`)) { return ''; }
     const libraryCode = /[?&]libraryCode=([A-Za-z0-9-]+)/.exec(url)?.[1] ?? '';
@@ -66,6 +72,7 @@ export class OpacService {
       });
       if (response.responseCode !== 200 || typeof response.result !== 'string') { return ''; }
       const parsed = JSON.parse(response.result) as RawShelfResponse;
+      console.info(`OPAC shelf: library ${libraryCode}, code ${parsed.errorCode ?? 'missing'}`);
       if (Number(parsed.errorCode) !== 0) { return ''; }
       const layer = parsed.result?.collectionInventory?.bookShelfLayer;
       const shelf = parsed.result?.collectionInventory?.bookShelf;
@@ -226,7 +233,7 @@ export class OpacService {
       };
       const navIndex = headers.indexOf('架位导航');
       const navCell = navIndex < 0 ? '' : (cells[navIndex] ?? '');
-      const href = navCell.match(/href\s*=\s*["']([^"']+)["']/i)?.[1] ?? '';
+      const href = OpacService.clean(navCell.match(/href\s*=\s*["']([^"']+)["']/i)?.[1]);
       const url = href.startsWith('/') ? `${OPAC_BASE_URL}${href}` : href;
       return {
         department: lookup('馆藏部门'),

@@ -1,4 +1,6 @@
 import { webview } from '@kit.ArkWeb';
+import { window } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { displayText } from '../common/Format';
 import { BookDetailResponse, Holding } from '../model/Types';
 import { OpacService } from '../service/OpacService';
@@ -18,12 +20,13 @@ export struct BookDetail {
   @State loading: boolean = false;
   @State errorText: string = '';
   @State mapUrl: string = '';
-  @State mapLocation: string = '';
   @State mapStatus: string = 'none';
   @State mapExpanded: boolean = false;
+  @State expandedHoldingKey: string = '';
   @State holdingLocations: HoldingLocation[] = [];
-  @State checkedLocationUrls: string[] = [];
   @State isFavorite: boolean = false;
+  @State mapTopInset: number = 0;
+  @State mapBottomInset: number = 0;
   private mapVersion: number = 0;
   private detailVersion: number = 0;
   private locationRequests: Map<string, Promise<string>> = new Map();
@@ -31,8 +34,19 @@ export struct BookDetail {
   private fullMapController: webview.WebviewController = new webview.WebviewController();
 
   aboutToAppear(): void {
+    window.getLastWindow(getContext(this) as common.UIAbilityContext).then((appWindow: window.Window) => {
+      this.mapTopInset = this.getUIContext().px2vp(
+        appWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM).topRect.height);
+      this.mapBottomInset = this.getUIContext().px2vp(
+        appWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR).bottomRect.height);
+    }).catch(() => {});
     this.isFavorite = FavoritesStore.contains(getContext(this), this.bookId);
     this.loadDetail();
+  }
+
+  aboutToDisappear(): void {
+    this.detailVersion++;
+    this.mapVersion++;
   }
 
   private toggleFavorite(): void {
@@ -51,18 +65,16 @@ export struct BookDetail {
     this.loading = true;
     this.errorText = '';
     this.holdingLocations = [];
-    this.checkedLocationUrls = [];
+    this.mapVersion++;
+    this.mapExpanded = false;
+    this.expandedHoldingKey = '';
+    this.mapUrl = '';
+    this.mapStatus = 'none';
     this.locationRequests.clear();
     try {
       const detail = await OpacService.detail(this.bookId);
       if (version !== this.detailVersion) { return; }
       this.detail = detail;
-      const first = detail.holdings.find((holding: Holding): boolean => !!holding.navigation_url);
-      if (first) {
-        this.selectMap(first);
-      } else {
-        this.mapStatus = 'none';
-      }
       this.loadAllHoldingLocations(detail.holdings, version);
     } catch (error) {
       if (version === this.detailVersion) {
@@ -88,7 +100,6 @@ export struct BookDetail {
       if (location) {
         this.holdingLocations = [...this.holdingLocations, { url: url, text: location }];
       }
-      this.checkedLocationUrls = [...this.checkedLocationUrls, url];
       this.locationRequests.delete(url);
     }
     return location;
@@ -111,44 +122,35 @@ export struct BookDetail {
     await Promise.all([worker(), worker(), worker()]);
   }
 
-  private async selectMap(holding: Holding): Promise<void> {
-    const version = ++this.mapVersion;
-    this.mapUrl = holding.navigation_url;
-    this.mapLocation = holding.shelf_location || holding.department || holding.call_number;
-    this.mapStatus = this.mapUrl ? 'checking' : 'none';
-    if (!this.mapUrl) { return; }
-    const location = await this.resolveLocation(this.mapUrl, this.detailVersion);
-    const available = !!location || await OpacService.navigationAvailable(this.mapUrl);
-    if (version === this.mapVersion) {
-      if (location) {
-        this.mapLocation = location;
-      }
-      this.mapStatus = available ? 'available' : 'unavailable';
-      console.info(`OPAC map: ${this.mapStatus}`);
-    }
-  }
-
   private holdingLocation(holding: Holding): string {
     const found = this.holdingLocations.find((item: HoldingLocation): boolean =>
       item.url === holding.navigation_url);
     if (found) { return found.text; }
-    if (holding.navigation_url && this.checkedLocationUrls.indexOf(holding.navigation_url) < 0) {
-      return '正在查询精确架位…';
-    }
     return holding.shelf_location ||
       `按索书号 ${displayText(holding.call_number)} 查找`;
   }
 
-  private async openHoldingMap(holding: Holding): Promise<void> {
-    await this.selectMap(holding);
-    if (this.mapStatus === 'available') { this.mapExpanded = true; }
+  private async toggleHoldingMap(holding: Holding, key: string): Promise<void> {
+    const version = ++this.mapVersion;
+    if (this.expandedHoldingKey === key) {
+      this.expandedHoldingKey = '';
+      this.mapStatus = 'none';
+      return;
+    }
+    this.expandedHoldingKey = key;
+    this.mapUrl = OpacService.mapPreviewUrl(holding.navigation_url);
+    this.mapStatus = 'checking';
+    const available = await OpacService.navigationAvailable(holding.navigation_url);
+    if (version === this.mapVersion && this.expandedHoldingKey === key) {
+      this.mapStatus = available ? 'available' : 'unavailable';
+    }
   }
 
   @Builder
   private fullMap(): void {
-    Column({ space: 8 }) {
+    Column({ space: 0 }) {
       Row() {
-        Text('架位地图')
+        Text('馆藏架位地图')
           .fontSize(20)
           .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.text_primary'))
@@ -157,29 +159,43 @@ export struct BookDetail {
           .height(44)
           .onClick(() => { this.mapExpanded = false; });
       }
-      .width('100%');
-      Web({ src: this.mapUrl, controller: this.fullMapController })
-        .javaScriptAccess(true)
-        .domStorageAccess(true)
-        .zoomAccess(true)
-        .width('100%')
-        .layoutWeight(1);
+      .width('100%')
+      .height(56)
+      .padding({ left: 16, right: 16 });
+      Stack() {
+        Web({ src: this.mapUrl, controller: this.fullMapController })
+          .onControllerAttached(() => {
+            this.fullMapController.setCustomUserAgent(`${this.fullMapController.getUserAgent()} Android`);
+          })
+          .javaScriptAccess(true)
+          .domStorageAccess(true)
+          .metaViewport(true)
+          .zoomAccess(true)
+          .width('100%')
+          .height('100%');
+      }
+      .width('100%')
+      .layoutWeight(1);
       Text('双指捏合可缩放地图')
         .fontSize(13)
-        .fontColor($r('app.color.text_secondary'));
+        .fontColor($r('app.color.text_secondary'))
+        .width('100%')
+        .height(44)
+        .textAlign(TextAlign.Center);
     }
-    .padding({ left: 12, right: 12, top: 16, bottom: 28 })
     .width('100%')
     .height('100%')
+    .padding({ top: this.mapTopInset, bottom: this.mapBottomInset })
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     .backgroundColor($r('app.color.page_bg'));
   }
 
   @Builder
-  private mapSection(): void {
+  private inlineMap(holding: Holding): void {
     Column({ space: 8 }) {
       Row() {
-        Text('图书架位地图')
-          .fontSize(18)
+        Text('此馆藏架位地图')
+          .fontSize(15)
           .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.text_primary'))
           .layoutWeight(1);
@@ -190,45 +206,48 @@ export struct BookDetail {
         }
       }
       .width('100%');
-      Text(this.mapLocation)
-        .fontSize(13)
-        .fontColor($r('app.color.text_secondary'));
       if (this.mapStatus === 'available') {
         Web({ src: this.mapUrl, controller: this.mapController })
+          .onControllerAttached(() => {
+            this.mapController.setCustomUserAgent(`${this.mapController.getUserAgent()} Android`);
+          })
           .javaScriptAccess(true)
           .domStorageAccess(true)
+          .metaViewport(true)
           .zoomAccess(true)
           .width('100%')
-          .height(240);
-        Text('已连接馆方架位服务；可放大查看地图')
-          .fontSize(12)
-          .fontColor($r('app.color.text_secondary'));
+          .height(260);
+      } else if (this.mapStatus === 'checking') {
+        Row({ space: 8 }) {
+          LoadingProgress().width(20).height(20);
+          Text('正在连接架位地图…').fontColor($r('app.color.text_secondary'));
+        }
+        .height(72);
       } else {
         Image($r('app.media.shelf_navigation'))
           .width('100%')
           .height(124)
           .objectFit(ImageFit.Contain);
-        Text(this.mapStatus === 'checking' ? '正在检测架位服务…' :
-          this.mapStatus === 'unavailable' ? '当前网络无法访问馆方架位服务，请连接校园网后重试。' :
-          '馆方未提供架位地图')
+        Text('当前网络无法访问馆方架位服务，请连接校园网后重试。')
           .fontSize(13)
           .fontColor($r('app.color.text_secondary'));
-        if (this.mapStatus === 'unavailable') {
-          Button('重新检测')
-            .height(44)
-            .onClick(() => {
-              const holding = this.detail?.holdings.find((item: Holding): boolean =>
-                item.navigation_url === this.mapUrl);
-              if (holding) { this.selectMap(holding); }
+        Button('重新检测')
+          .height(44)
+          .onClick(() => {
+            this.mapStatus = 'checking';
+            const version = ++this.mapVersion;
+            OpacService.navigationAvailable(holding.navigation_url).then((available: boolean) => {
+              if (version === this.mapVersion) {
+                this.mapStatus = available ? 'available' : 'unavailable';
+              }
             });
-        }
+          });
       }
     }
     .alignItems(HorizontalAlign.Start)
-    .padding(16)
+    .padding({ top: 8 })
     .width('100%')
-    .backgroundColor($r('app.color.card_bg'))
-    .borderRadius(16);
+    .borderRadius(12);
   }
 
   private departments(): string[] {
@@ -257,6 +276,7 @@ export struct BookDetail {
         Text(value)
           .fontColor($r('app.color.text_primary'))
           .fontSize(14)
+          .copyOption(CopyOptions.LocalDevice)
           .layoutWeight(1);
       }
       .width('100%')
@@ -266,7 +286,7 @@ export struct BookDetail {
   }
 
   @Builder
-  private holdingCard(holding: Holding): void {
+  private holdingCard(holding: Holding, key: string): void {
     Column({ space: 8 }) {
       Row() {
         Text(holding.status || '状态未知')
@@ -281,14 +301,23 @@ export struct BookDetail {
       this.metadataRow('索书号', displayText(holding.call_number));
       this.metadataRow('图书条码', displayText(holding.barcode));
       this.metadataRow('登录号', holding.accession_number);
-      this.metadataRow('图书架位', this.holdingLocation(holding));
+      Row() {
+        Text('图书架位')
+          .fontColor($r('app.color.text_secondary')).fontSize(14).width(92);
+        Text(this.holdingLocations.find((item: HoldingLocation): boolean =>
+          item.url === holding.navigation_url)?.text || holding.shelf_location ||
+          `按索书号 ${displayText(holding.call_number)} 查找`)
+          .fontColor($r('app.color.text_primary')).fontSize(14)
+          .copyOption(CopyOptions.LocalDevice).layoutWeight(1);
+      }
+      .width('100%').alignItems(VerticalAlign.Top).padding({ top: 6, bottom: 6 });
       if (holding.navigation_url) {
-        Button('全屏预览此馆藏地图')
+        Button(this.expandedHoldingKey === key ? '收起架位地图' : '查看架位地图')
           .height(44)
-          .onClick(() => { this.openHoldingMap(holding); });
-        Text(holding.navigation_is_private_network ? '此地图使用馆方校园内网地址' : '此地图使用馆方导航地址')
-          .fontSize(12)
-          .fontColor($r('app.color.text_secondary'));
+          .onClick(() => { this.toggleHoldingMap(holding, key); });
+        if (this.expandedHoldingKey === key) {
+          this.inlineMap(holding);
+        }
       }
     }
     .alignItems(HorizontalAlign.Start)
@@ -328,7 +357,11 @@ export struct BookDetail {
               Text(this.detail.title)
                 .fontSize(22)
                 .fontWeight(FontWeight.Bold)
-                .fontColor($r('app.color.text_primary'));
+                .fontColor($r('app.color.text_primary'))
+                .copyOption(CopyOptions.LocalDevice);
+              Text('长按书目信息可复制')
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'));
               Button(this.isFavorite ? '取消收藏' : '加入收藏')
                 .height(44)
                 .onClick(() => { this.toggleFavorite(); });
@@ -345,8 +378,6 @@ export struct BookDetail {
             .width('100%')
             .backgroundColor($r('app.color.card_bg'))
             .borderRadius(16);
-
-            this.mapSection();
 
             Text(`馆藏 (${this.detail.holdings.length})`)
               .fontSize(18)
@@ -366,7 +397,7 @@ export struct BookDetail {
                 .fontColor($r('app.color.text_secondary'))
                 .width('100%');
               ForEach(this.holdingsIn(department), (holding: Holding, index: number) => {
-                this.holdingCard(holding);
+                this.holdingCard(holding, `${department}-${holding.barcode}-${index}`);
               }, (holding: Holding, index: number) => `${department}-${holding.barcode}-${index}`);
             }, (department: string) => department);
           }
@@ -376,6 +407,7 @@ export struct BookDetail {
       }
       .width('100%')
       .height('100%')
+      .edgeEffect(EdgeEffect.Spring)
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM]);
     }
     .hideTitleBar(true)

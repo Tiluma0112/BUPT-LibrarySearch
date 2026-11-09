@@ -51,8 +51,29 @@ struct Index {
   private silentVerifying: boolean = false;
   private silentChecking: boolean = false;
   private silentGeneration: number = 0;
+  private silentPageVersion: number = 0;
+
+  aboutToAppear(): void {
+    this.autoRenewSession();
+  }
 
   private async verifySilentPortal(generation: number): Promise<void> {
+    try {
+      webview.WebCookieManager.saveCookieSync();
+    } catch (_error) {}
+    try {
+      await LibraryDataService.verifyOpacSession();
+    } catch (error) {
+      if (!this.silentRenewal || generation !== this.silentGeneration) { return; }
+      this.silentChecking = false;
+      this.silentRenewal = false;
+      if (error instanceof Error && error.message === '认证已失效，请重新登录') {
+        LoginSettingsStore.markExpired(getContext(this));
+      }
+      this.favoritesRefreshVersion++;
+      return;
+    }
+    if (!this.silentRenewal || generation !== this.silentGeneration) { return; }
     const apiProfile = await LibraryDataService.loadPortalProfile();
     const pageProfile = await PortalProfileBridge.read(this.silentController);
     if (!this.silentRenewal || generation !== this.silentGeneration) { return; }
@@ -79,21 +100,36 @@ struct Index {
   }
 
   private autoRenewSession(): void {
-    if (this.autoRenewStarted || this.pathStack.size() > 0) { return; }
+    if (this.autoRenewStarted || this.silentRenewal || this.pathStack.size() > 0) { return; }
     this.autoRenewStarted = true;
     try {
       if (LoginSettingsStore.isWithinValidPeriod(getContext(this))) {
+        this.silentGeneration++;
+        this.silentPortalStage = false;
+        this.silentVerifying = false;
+        this.silentChecking = false;
         this.silentRenewal = true;
+        const generation = this.silentGeneration;
+        setTimeout(() => {
+          if (this.silentRenewal && generation === this.silentGeneration) {
+            this.silentRenewal = false;
+            this.silentChecking = false;
+            this.silentGeneration++;
+            this.favoritesRefreshVersion++;
+          }
+        }, 45000);
       }
     } catch (_error) {}
   }
 
   private onSilentPageEnd(url: string): void {
     if (!this.silentRenewal) { return; }
-    const generation = ++this.silentGeneration;
+    const generation = this.silentGeneration;
+    const pageVersion = ++this.silentPageVersion;
     if (url.startsWith('https://auth.bupt.edu.cn/')) {
       setTimeout(() => {
-        if (this.silentRenewal && generation === this.silentGeneration) {
+        if (this.silentRenewal && generation === this.silentGeneration &&
+          pageVersion === this.silentPageVersion) {
           this.silentRenewal = false;
           LoginSettingsStore.markExpired(getContext(this));
           this.favoritesRefreshVersion++;
@@ -176,8 +212,8 @@ struct Index {
     const search = (): void => {
       this.keyword = keyword;
       this.field = isIsbn ? 'isbn' : 'title';
-      this.activeTab = 0;
-      this.tabSwipeProgress = 0;
+      this.campus = 'all';
+      this.availabilityFilter = 'all';
       this.tabsController.changeIndex(0);
       this.loadPage(1);
     };
@@ -193,29 +229,38 @@ struct Index {
     return Math.max(0, 1 - Math.abs(this.tabSwipeProgress - index));
   }
 
+  private settleTabProgress(index: number, duration: number): void {
+    this.getUIContext()?.animateTo({ duration: duration, curve: Curve.EaseOut }, () => {
+      this.tabSwipeProgress = index;
+    });
+  }
+
   @Builder
   private floatingTab(label: string, index: number): void {
-    Column({ space: 2 }) {
+    Stack() {
+      Row()
+        .width(104)
+        .height(40)
+        .borderRadius(20)
+        .backgroundColor($r('app.color.tab_selected_bg'))
+        .opacity(this.tabStrength(index))
+        .scale({ x: 0.86 + 0.14 * this.tabStrength(index),
+          y: 0.86 + 0.14 * this.tabStrength(index) });
       Stack() {
         Text(label)
           .fontSize(14)
           .fontColor($r('app.color.text_secondary'))
           .opacity(1 - this.tabStrength(index));
         Text(label)
-          .fontSize(14)
+          .fontSize(15)
           .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.accent'))
           .opacity(this.tabStrength(index));
       }
-      Divider()
-        .strokeWidth(2)
-        .color($r('app.color.accent'))
-        .width(24)
-        .opacity(this.tabStrength(index));
     }
-    .justifyContent(FlexAlign.Center)
+    .alignContent(Alignment.Center)
     .width('100%')
-    .height('100%');
+    .height(56);
   }
 
   @Builder
@@ -406,21 +451,30 @@ struct Index {
         .fontSize(13)
         .fontColor($r('app.color.text_secondary'))
         .maxLines(1);
-      Row() {
-        Text(`索书号 ${book.call_number || '暂无'}`)
+      Text(`索书号 ${book.call_number || '暂无'}`)
+        .fontSize(13)
+        .fontColor($r('app.color.text_secondary'))
+        .maxLines(2)
+        .width('100%');
+      Row({ space: 12 }) {
+        Text(`馆藏 ${displayCount(book.holdings_count)}`)
           .fontSize(13)
-          .fontColor($r('app.color.text_secondary'))
-          .layoutWeight(1);
-        Text(`馆藏 ${displayCount(book.holdings_count)} / 可借 ${displayCount(book.available_count)}`)
+          .fontColor($r('app.color.text_secondary'));
+        Text(`可借 ${displayCount(book.available_count)}`)
           .fontSize(13)
+          .fontWeight(FontWeight.Medium)
           .fontColor($r('app.color.accent'));
       }
       .width('100%');
-      Row() {
+      Row({ space: 4 }) {
         Blank().layoutWeight(1);
-        Button('查看详情')
-          .height(44)
-          .onClick(() => { this.pathStack.pushPathByName('BookDetail', book.id); });
+        Text('查看馆藏详情')
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.accent'));
+        SymbolGlyph($r('sys.symbol.chevron_forward'))
+          .fontSize(18)
+          .fontColor([$r('app.color.accent')]);
       }
       .width('100%');
     }
@@ -430,6 +484,7 @@ struct Index {
     .constraintSize({ minHeight: 112 })
     .backgroundColor($r('app.color.card_bg'))
     .borderRadius(16)
+    .onClick(() => { this.pathStack.pushPathByName('BookDetail', book.id); })
   }
 
   build(): void {
@@ -497,6 +552,8 @@ struct Index {
         .width('100%')
         .height('100%')
         .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+        .backgroundColor($r('app.color.page_bg'))
+        .clipContent(ContentClipMode.SAFE_AREA)
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM]);
           }
           .onRefreshing(() => {
@@ -509,6 +566,7 @@ struct Index {
         .tabBar(this.floatingTab('检索', 0));
         TabContent() {
           MyLibrary({
+            renewalInProgress: this.silentRenewal,
             onLogin: () => {
               this.silentRenewal = false;
               this.pathStack.pushPathByName('LibraryLogin', 'manual');
@@ -537,18 +595,24 @@ struct Index {
         if (width > 0) { this.tabsWidth = width; }
       })
       .animationDuration(280)
+      .animationCurve(Curve.EaseOut)
       .onAnimationStart((index: number, targetIndex: number, event: TabsAnimationEvent) => {
-        this.getUIContext()?.animateTo({ duration: 280, curve: Curve.EaseOut }, () => {
-          this.tabSwipeProgress = targetIndex;
-        });
+        this.settleTabProgress(targetIndex, 280);
+      })
+      .onAnimationEnd((index: number, event: TabsAnimationEvent) => {
+        this.tabSwipeProgress = index;
       })
       .onGestureSwipe((index: number, event: TabsAnimationEvent) => {
         this.tabSwipeProgress = Math.max(0, Math.min(1,
           index - event.currentOffset / this.tabsWidth));
       })
+      .scrollable(true)
       .barHeight(56)
       .barOverlap(true)
       .barFloatingStyle({
+        barWidth: { smallBarWidth: 232, mediumBarWidth: 280, largeBarWidth: 320 },
+        barSideMargin: 16,
+        barBottomMargin: 12,
         systemMaterial: new uiMaterial.ImmersiveMaterial({
           style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
           applyShadow: true,
@@ -556,7 +620,6 @@ struct Index {
           lightEffect: { color: $r('app.color.accent') }
         })
       })
-      .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
       .width('100%')
       .height('100%');
     }
@@ -577,6 +640,7 @@ struct Index {
       }
     }
     .width('100%')
-    .height('100%');
+    .height('100%')
+    .backgroundColor($r('app.color.page_bg'));
   }
 }

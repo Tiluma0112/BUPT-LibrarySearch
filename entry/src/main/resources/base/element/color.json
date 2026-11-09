@@ -27,6 +27,10 @@
     {
       "name": "accent",
       "value": "#1764AD"
+    },
+    {
+      "name": "tab_selected_bg",
+      "value": "#DCECFB"
     }
   ]
 }

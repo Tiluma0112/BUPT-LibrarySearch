@@ -2,6 +2,7 @@ import { webview } from '@kit.ArkWeb';
 import { LIBRARY_LOGIN_URL, OPAC_BASE_URL, PORTAL_BASE_URL, PORTAL_LOGIN_URL } from '../common/AppConfig';
 import { ReaderProfile } from '../model/PersonalTypes';
 import { PortalProfileBridge } from '../service/PortalProfileBridge';
+import { LibraryDataService } from '../service/LibraryDataService';
 
 @Component
 export struct LibraryLogin {
@@ -18,12 +19,12 @@ export struct LibraryLogin {
   private async verifyPortal(): Promise<void> {
     const generation = ++this.verifyGeneration;
 
-    // 1. 持久化 ArkWeb Cookie；当前会话的有效性仍须由网页资料验证。
+    // 持久化 ArkWeb Cookie，再用 OPAC 个人接口验证会话。
     try {
       webview.WebCookieManager.saveCookieSync();
     } catch (_e) { /* 落盘失败不阻断，继续尝试读取 */ }
 
-    // 2. 检查 OPAC 域名是否有 Cookie。存在 Cookie 本身并不等于认证成功。
+    // Cookie 存在只是前提，个人接口返回成功才代表认证完成。
     let hasSession = false;
     try {
       const cookie = webview.WebCookieManager.fetchCookieSync(OPAC_BASE_URL, false, true);
@@ -40,7 +41,18 @@ export struct LibraryLogin {
       return;
     }
 
-    // 3. Cookie 已确认存在，再通过桥接读取个人资料
+    try {
+      await LibraryDataService.verifyOpacSession();
+    } catch (error) {
+      if (this.completed || generation !== this.verifyGeneration) { return; }
+      this.portalChecking = false;
+      this.statusText = error instanceof Error && error.message === '认证已失效，请重新登录' ?
+        error.message : '图书馆会话验证暂不可用，请重试';
+      return;
+    }
+    if (this.completed || generation !== this.verifyGeneration) { return; }
+
+    // OPAC 认证通过后，读取当前网页上的个人资料。
     const profile = await PortalProfileBridge.read(this.controller);
     if (this.completed || generation !== this.verifyGeneration) { return; }
 
